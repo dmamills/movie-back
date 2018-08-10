@@ -60,18 +60,21 @@ router.get('/search', (req, res) => {
     res.json({ movies });
   }
 
+  const onSearchError = (err) => {
+    res.status(500).json({
+      error: 'Error completing search',
+    });
+  }
+
+  let searchPromise;
   switch(type.toLowerCase()) {
     case 'title':
-      searchMovies(term)
-      .then(onSearchComplete);
+      searchPromise = searchMovies(term)
     break;
     case 'actor':
-      searchActors(term)
-      .then(onSearchComplete);
-    break;
+      searchPromise = searchActors(term)
     case 'genre':
-      searchGenre(term)
-      .then(onSearchComplete);
+      searchPromise = searchGenre(term)
     break;
     default:
       res.status(400).json({
@@ -79,6 +82,10 @@ router.get('/search', (req, res) => {
       });
     break;
   }
+
+  searchPromise
+    .then(onSearchComplete)
+    .catch(onSearchError);
 });
 
 router.get('/:id', (req, res) => {
