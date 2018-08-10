@@ -1,15 +1,42 @@
 const express = require('express');
 const router = express.Router();
 
-const Movie = require('../models/Movie');
-const Actor = require('../models/Actor');
-const Genre = require('../models/Genre');
+const { Movie, Actor, Genre } = require('../models');
 
+const MOVIE_RELATIONS = ['actors', 'genre'];
 
 function fetchMovies() {
   return Movie.fetchAll({
-    withRelated: ['actors', 'genre'],
+    withRelated: MOVIE_RELATIONS
   });
+}
+
+function searchMovies(term) {
+  return Movie.where('title', 'LIKE', `%${term}%`)
+    .fetchAll({
+      withRelated: MOVIE_RELATIONS
+    });
+}
+
+function searchActors(term) {
+  return Movie
+    .query(qb => {
+      qb.innerJoin('actors_movies', 'movies.id', 'actors_movies.movie_id');
+      qb.innerJoin('actors', 'actors.id', 'actors_movies.actor_id');
+      qb.where('actors.name', 'LIKE', `%${term}%`);
+    })
+    .fetchAll({
+      withRelated: MOVIE_RELATIONS
+    });
+}
+
+function searchGenre(term) {
+  return Movie
+    .query('join', 'genres', 'movies.genre_id', 'genres.id')
+    .where('genres.name', 'LIKE', `%${term}%`)
+    .fetchAll({
+      withRelated: MOVIE_RELATIONS
+    });
 }
 
 router.get('/', (req, res) => {
@@ -25,24 +52,65 @@ router.get('/', (req, res) => {
   });
 });
 
+router.get('/search', (req, res) => {
+  const { term, type } = req.query;
+  console.log(req.query);
+
+  const onSearchComplete = (movies) => {
+    res.json({ movies });
+  }
+
+  switch(type.toLowerCase()) {
+    case 'title':
+      searchMovies(term)
+      .then(onSearchComplete);
+    break;
+    case 'actor':
+      searchActors(term)
+      .then(onSearchComplete);
+    break;
+    case 'genre':
+      searchGenre(term)
+      .then(onSearchComplete);
+    break;
+    default:
+      res.status(400).json({
+        error: `Invalid type ${type}`
+      });
+    break;
+  }
+});
+
+router.get('/:id', (req, res) => {
+
+  const id = req.params.id;
+
+  new Movie({ id })
+  .fetch({
+    withRelated: MOVIE_RELATIONS
+  })
+  .then(movie => {
+    if(!movie) {
+      res.status(404).json({
+        err: `Movie ${id} not found`
+      });
+      return;
+    }
+
+    res.json({
+      movie
+    });
+  })
+});
+
 
 router.post('/', (req, res) => {
 
-  //fetch or create Actors
   const actors = req.body.actors.map(actor => {
-    if(typeof actor === 'number') {
-      return new Actor({ id: actor}).fetch();
-    }
-
-    return new Actor({ name: actor }).save();
+    return new Actor({ id: actor }).fetch();
   });
 
-  let genre;
-  if(typeof req.body.genre !== 'number') {
-    genre = new Genre({ name: req.body.genre }).save();
-  } else {
-    genre = { id: req.body.genre };
-  }
+  let genre = { id: req.body.genre };
 
   Promise.all([...actors, genre ])
   .then(result => {
@@ -54,7 +122,7 @@ router.post('/', (req, res) => {
     }).save()
     .then(movie => {
       movie.actors().attach(result);;
-      movie.load(['genre', 'actors'])
+      movie.load(MOVIE_RELATIONS)
       .then(movie => {
         res.json({
           movie
